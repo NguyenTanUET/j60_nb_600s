@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 RCPSP solver using linear search from upper bound down to lower bound.
@@ -11,6 +12,9 @@ import time
 from pathlib import Path
 from google.cloud import storage
 import os
+
+# Thời gian tối đa cho mỗi instance
+TIME_PER_INSTANCE = 600
 
 def solve_rcpsp_with_makespan_bound(data_file, target_makespan, time_remaining):
     """
@@ -72,9 +76,8 @@ def solve_rcpsp_with_makespan_bound(data_file, target_makespan, time_remaining):
 def solve_rcpsp_linear_search(data_file):
     """
     Solve RCPSP using linear search from upper bound down to lower bound
-    Only overall 600s time limit - no limit per makespan test
+    Only overall TIME_PER_INSTANCE time limit - no limit per makespan test
     """
-    TOTAL_TIME_LIMIT = 600
     start_time = time.time()
 
     try:
@@ -102,19 +105,21 @@ def solve_rcpsp_linear_search(data_file):
 
         # Linear search from upper bound down to lower bound
         print(f"Starting linear search from {UPPER_BOUND} down to {LOWER_BOUND}")
-        print(f"Total time limit: {TOTAL_TIME_LIMIT}s")
+        print(f"Total time limit: {TIME_PER_INSTANCE}s")
 
         optimal_makespan = None
         attempts = 0
+        timeout_occurred = False
 
         for makespan in range(UPPER_BOUND, LOWER_BOUND - 1, -1):
             attempts += 1
             elapsed = time.time() - start_time
-            time_remaining = TOTAL_TIME_LIMIT - elapsed
+            time_remaining = TIME_PER_INSTANCE - elapsed
 
             # Check total time limit
             if time_remaining <= 0:
                 print(f"Total time limit exceeded after {attempts} attempts")
+                timeout_occurred = True
                 break
 
             print(f"  Attempt {attempts}: Testing makespan = {makespan}")
@@ -143,11 +148,17 @@ def solve_rcpsp_linear_search(data_file):
         solve_time = time.time() - start_time
 
         if optimal_makespan is not None:
-            # Determine simplified status
-            if optimal_makespan == LOWER_BOUND:
+            # Determine status based on timeout and optimality
+            if solve_time > TIME_PER_INSTANCE or timeout_occurred:
+                # Nếu chạy quá thời gian cho phép thì status là feasible
+                status = "feasible"
+                print(f"✓ Found FEASIBLE solution (timeout): {optimal_makespan}")
+            elif optimal_makespan == LOWER_BOUND:
+                # Nếu tìm được lower bound và không timeout thì optimal
                 status = "optimal"
                 print(f"✓ Found OPTIMAL solution: {optimal_makespan} (matches lower bound)")
             else:
+                # Nếu không timeout nhưng chưa đạt lower bound thì feasible
                 status = "feasible"
                 print(f"✓ Found FEASIBLE solution: {optimal_makespan}")
 
@@ -166,22 +177,34 @@ def solve_rcpsp_linear_search(data_file):
 
 
 def main():
-    # Directories
+    # Define directories
     data_dir = Path("data")
     result_dir = Path("result")
     output_file = result_dir / "j60_with_bound_600s.csv"
 
+    # Create result directory if it doesn't exist
     os.makedirs(result_dir, exist_ok=True)
 
-    # Find data files
-    data_files = list(data_dir.glob("*.data"))
-    if not data_files:
-        print(f"No .data files found in {data_dir}")
+    # Find all .data files in the data directory
+    all_data_files = list(data_dir.glob("*.data"))
+    if not all_data_files:
+        print(f"Warning: No .data files found in {data_dir}")
+        print(f"Current directory: {os.getcwd()}")
+        print("Directory contents:")
+        for item in os.listdir():
+            print(f"  {item}")
         return
 
-    print(f"Found {len(data_files)} files to process")
+    # Sort files to ensure consistent order
+    all_data_files.sort()
+
+    # Process ALL files instead of a specific range
+    data_files = all_data_files
+
+    print(f"Found {len(all_data_files)} total .data files")
+    print(f"Processing ALL {len(data_files)} files in the data directory")
+    print(f"Using {TIME_PER_INSTANCE} seconds time limit per instance")
     print("Strategy: Linear search from upper bound down to lower bound")
-    print("No time limit per makespan test - only 600s total limit per instance")
 
     # Process files
     with open(output_file, 'w', newline='') as csvfile:
@@ -189,7 +212,7 @@ def main():
         # Updated CSV header as requested
         csv_writer.writerow(["File name", "LB", "UB", "Makespan", "Status", "Solve time (second)"])
 
-        for i, data_file in enumerate(sorted(data_files), 1):
+        for i, data_file in enumerate(data_files, 1):
             file_name = data_file.name
             print(f"\n{'=' * 60}")
             print(f"[{i}/{len(data_files)}] Processing {file_name}")
